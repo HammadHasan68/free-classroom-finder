@@ -58,14 +58,13 @@ function loadSavedBookings() {
     }
 
     parsedBookings.forEach((booking) => {
-        const validTime = (time) => /^\d{2}:\d{2}$/.test(time) && timeToMinutes(time) < 1440;
         const roomExists = rooms.some((room) => room.id === booking.roomId);
         if (
             typeof booking.id !== "string" ||
             !roomExists ||
             !weekdayOrder.includes(booking.day) ||
-            !validTime(booking.start) ||
-            !validTime(booking.end) ||
+            !isValidTime(booking.start) ||
+            !isValidTime(booking.end) ||
             timeToMinutes(booking.end) <= timeToMinutes(booking.start) ||
             isRoomBusy(booking.roomId, booking.day, booking.start, booking.end)
         ) {
@@ -87,6 +86,15 @@ function timeToMinutes(time) {
     return hour * 60 + minute;
 }
 
+function isValidTime(time) {
+    if (typeof time !== "string" || !/^\d{2}:\d{2}$/.test(time)) {
+        return false;
+    }
+
+    const [hour, minute] = time.split(":").map(Number);
+    return hour < 24 && minute < 60;
+}
+
 function isRoomBusy(roomId, day, start, end) {
     const requestedStart = timeToMinutes(start);
     const requestedEnd = timeToMinutes(end);
@@ -94,6 +102,10 @@ function isRoomBusy(roomId, day, start, end) {
     return bookings.some((booking) => {
         if (booking.roomId !== roomId || booking.day !== day) {
             return false;
+        }
+
+        if (!isValidTime(booking.start) || !isValidTime(booking.end)) {
+            return true;
         }
 
         return timeToMinutes(booking.start) < requestedEnd && timeToMinutes(booking.end) > requestedStart;
@@ -155,46 +167,77 @@ function renderSchedule() {
     const container = document.getElementById("schedule-list");
     container.replaceChildren();
 
-    const scheduledDays = weekdayOrder.filter((day) => bookings.some((booking) => booking.day === day));
-    if (scheduledDays.length === 0) {
-        const empty = document.createElement("p");
-        empty.className = "col-span-full rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-10 text-center text-sm text-slate-500";
-        empty.textContent = "No rooms are scheduled yet.";
-        container.append(empty);
-        return;
-    }
-
-    scheduledDays.forEach((day) => {
-        const section = document.createElement("section");
-        section.className = "rounded-2xl border border-slate-200 bg-white p-5 shadow-sm";
-        const heading = document.createElement("h2");
-        heading.className = "mb-4 font-bold text-slate-950";
-        heading.textContent = day;
-        section.append(heading);
-
-        bookings
+    weekdayOrder.forEach((day) => {
+        const dayBookings = bookings
             .filter((booking) => booking.day === day)
-            .sort((a, b) => timeToMinutes(a.start) - timeToMinutes(b.start))
-            .forEach((booking) => {
-                const room = rooms.find((item) => item.id === booking.roomId);
-                const entry = document.createElement("div");
-                entry.className = "border-t border-slate-100 py-3 first:border-t-0";
-                const title = document.createElement("p");
-                title.className = "text-sm font-semibold text-slate-900";
-                title.textContent = room.name;
-                const details = document.createElement("p");
-                details.className = "mt-1 text-xs text-slate-500";
-                details.textContent = `${booking.start}–${booking.end} · ${room.building}`;
-                entry.append(title, details);
-
-                if (myBookings.includes(booking)) {
-                    const badge = document.createElement("span");
-                    badge.className = "mt-2 inline-block rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-900";
-                    badge.textContent = "Your booking";
-                    entry.append(badge);
+            .sort((a, b) => {
+                const aHasTime = isValidTime(a.start);
+                const bHasTime = isValidTime(b.start);
+                if (!aHasTime || !bHasTime) {
+                    return Number(!aHasTime) - Number(!bHasTime);
                 }
-                section.append(entry);
+                return timeToMinutes(a.start) - timeToMinutes(b.start);
             });
+        const section = document.createElement("section");
+        section.className = "overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm";
+        const toggle = document.createElement("button");
+        const panelId = `schedule-day-${day.toLowerCase()}`;
+        toggle.type = "button";
+        toggle.dataset.toggleDay = "";
+        toggle.setAttribute("aria-expanded", "false");
+        toggle.setAttribute("aria-controls", panelId);
+        toggle.className = "flex w-full items-center justify-between gap-3 p-5 text-left transition hover:bg-slate-50 focus:outline-none focus-visible:ring-4 focus-visible:ring-inset focus-visible:ring-blue-900/10";
+        const heading = document.createElement("span");
+        heading.className = "font-bold text-slate-950";
+        heading.textContent = day;
+        const daySummary = document.createElement("span");
+        daySummary.className = "flex items-center gap-3";
+        const count = document.createElement("span");
+        count.className = "rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600";
+        count.textContent = `${dayBookings.length} ${dayBookings.length === 1 ? "session" : "sessions"}`;
+        const indicator = document.createElement("span");
+        indicator.className = "text-slate-400";
+        indicator.dataset.dayIndicator = "";
+        indicator.setAttribute("aria-hidden", "true");
+        indicator.textContent = "+";
+        daySummary.append(count, indicator);
+        toggle.append(heading, daySummary);
+        const panel = document.createElement("div");
+        panel.id = panelId;
+        panel.className = "border-t border-slate-100 px-5";
+        panel.hidden = true;
+
+        if (dayBookings.length === 0) {
+            const empty = document.createElement("p");
+            empty.className = "py-4 text-sm text-slate-500";
+            empty.textContent = "No sessions scheduled.";
+            panel.append(empty);
+        }
+
+        dayBookings.forEach((booking) => {
+            const room = rooms.find((item) => item.id === booking.roomId);
+            const entry = document.createElement("div");
+            entry.className = "border-t border-slate-100 py-3 first:border-t-0";
+            const title = document.createElement("p");
+            title.className = "text-sm font-semibold text-slate-900";
+            title.textContent = room.name;
+            const details = document.createElement("p");
+            details.className = "mt-1 text-xs text-slate-500";
+            const time = isValidTime(booking.start) && isValidTime(booking.end)
+                ? `${booking.start}–${booking.end}`
+                : "Time unavailable";
+            details.textContent = `${time} · ${room.building}`;
+            entry.append(title, details);
+
+            if (myBookings.includes(booking)) {
+                const badge = document.createElement("span");
+                badge.className = "mt-2 inline-block rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-900";
+                badge.textContent = "Your booking";
+                entry.append(badge);
+            }
+            panel.append(entry);
+        });
+        section.append(toggle, panel);
         container.append(section);
     });
 }
@@ -396,6 +439,17 @@ async function startApp() {
         if (button) {
             cancelBooking(button.dataset.cancelBooking);
         }
+    });
+    document.getElementById("schedule-list").addEventListener("click", (event) => {
+        const button = event.target.closest("[data-toggle-day]");
+        if (!button) {
+            return;
+        }
+
+        const expanded = button.getAttribute("aria-expanded") !== "true";
+        button.setAttribute("aria-expanded", String(expanded));
+        document.getElementById(button.getAttribute("aria-controls")).hidden = !expanded;
+        button.querySelector("[data-day-indicator]").textContent = expanded ? "-" : "+";
     });
     document.getElementById("room-search").addEventListener("input", () => {
         if (hasSearched) {
