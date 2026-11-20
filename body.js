@@ -9,15 +9,17 @@ let bookingStorageError = "";
 const weekdayOrder = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const bookingsStorageKey = "roomradar.userBookings";
 
-async function loadData() {
-    const response = await fetch("/data_set.json");
-    if (!response.ok) {
-        throw new Error(`Could not load campus data (${response.status}).`);
-    }
+async function loadData() {   // this function will fetch data from JSON file
+                                  // it will be called it startapp funtion
+    try {
 
-    const data = await response.json();
-    if (!Array.isArray(data.rooms) || !Array.isArray(data.bookings)) {
-        throw new Error("Campus data is missing its rooms or bookings list.");
+        let response = await fetch("data_set.json");
+
+        let data = await response.json();
+
+         rooms = data.rooms;
+         bookings=data.bookings;
+
     }
 
     rooms = data.rooms;
@@ -52,10 +54,13 @@ function loadSavedBookings() {
         return;
     }
 
-    const parsedBookings = JSON.parse(savedBookings);
-    if (!Array.isArray(parsedBookings)) {
-        throw new Error("Saved bookings data is not a list.");
-    }
+function timetominutes(time){   // this function will convert hours to minute and ad will minutes
+    let parts=time.split(":");   // 3:45 will be return as 225 minutes
+    let hour=Number(parts[0]);
+    let minute=Number(parts[1]);
+
+   return (hour*60)+minute;
+
 
     parsedBookings.forEach((booking) => {
         const roomExists = rooms.some((room) => room.id === booking.roomId);
@@ -75,16 +80,16 @@ function loadSavedBookings() {
     });
 }
 
-function populateSelect(id, values, placeholder) {
-    const select = document.getElementById(id);
-    select.replaceChildren(new Option(placeholder, ""));
-    values.forEach((value) => select.add(new Option(value, value)));
-}
+function isRoomBusy(roomId, day, start, end){   // it will return whether room is busy or not 
+    const timestarts=timetominutes(start);  // converting time of both starting and ending in minutes
+    const timeends=timetominutes(end);
 
-function timeToMinutes(time) {
-    const [hour, minute] = time.split(":").map(Number);
-    return hour * 60 + minute;
-}
+    
+    for(let i=0;i<bookings.length;i++){   //bookings.length is how many total block bookings we have
+
+         if (bookings[i].roomId===roomId && bookings[i].day === day){  //bookings[i].roomid is the room id written in JSON file
+                 const bookingstart=timetominutes(bookings[i].start);   // roomid  which is compared with bookings[i].roomid is the one user gave
+        const bookingend=timetominutes(bookings[i].end);
 
 function isValidTime(time) {
     if (typeof time !== "string" || !/^\d{2}:\d{2}$/.test(time)) {
@@ -95,9 +100,7 @@ function isValidTime(time) {
     return hour < 24 && minute < 60;
 }
 
-function isRoomBusy(roomId, day, start, end) {
-    const requestedStart = timeToMinutes(start);
-    const requestedEnd = timeToMinutes(end);
+function getFreeRooms(day, start, end){  //give all free rooms at the given time slots
 
     return bookings.some((booking) => {
         if (booking.roomId !== roomId || booking.day !== day) {
@@ -112,14 +115,10 @@ function isRoomBusy(roomId, day, start, end) {
     });
 }
 
-function searchRooms(day, start, end, filters) {
-    return rooms.filter((room) =>
-        !isRoomBusy(room.id, day, start, end) &&
-        (!filters.building || room.building === filters.building) &&
-        (!filters.type || room.type === filters.type) &&
-        (!filters.capacity || room.capacity >= Number(filters.capacity))
-    );
-}
+function applyFilters(rooms, filters){    //when a time is entered it is possible that many rooms appeared of different building at same time, thats why it will search for only specific filter user has given,like i want this room in this building
+    const filtered_rooms=[];
+
+    for(let i=0;i<rooms.length;i++){
 
 function showBookingFeedback(message, isError) {
     const feedback = document.getElementById("booking-feedback");
@@ -128,39 +127,23 @@ function showBookingFeedback(message, isError) {
     feedback.classList.toggle("text-slate-600", !isError);
 }
 
-function renderBookings() {
-    const container = document.getElementById("bookings-list");
-    const emptyState = document.getElementById("bookings-empty");
-    container.replaceChildren();
-    emptyState.classList.toggle("hidden", myBookings.length > 0);
+function groupRooms(rooms){            //it will give the result in a organized order like building => floor => class/lab
+    const result={};
+   
+    for(let i=0;i<rooms.length;i++){
+      const current_building=rooms[i].building;
+      const  current_floor=rooms[i].floor;
+       
+      if(result[current_building]===undefined){
+        result[current_building]={};
+      }
+      if(result[current_building][current_floor]===undefined){
+          result[current_building][current_floor]=[];
+      }
+       result[current_building][current_floor].push(rooms[i]);
+    }
 
-    myBookings
-        .slice()
-        .sort((a, b) => weekdayOrder.indexOf(a.day) - weekdayOrder.indexOf(b.day) || timeToMinutes(a.start) - timeToMinutes(b.start))
-        .forEach((booking) => {
-            const room = rooms.find((item) => item.id === booking.roomId);
-            const card = document.createElement("article");
-            card.className = "rounded-2xl border border-slate-200 bg-white p-5 shadow-sm";
-            card.dataset.userBooking = "";
-
-            const title = document.createElement("h2");
-            title.className = "font-bold text-slate-950";
-            title.textContent = room.name;
-            const building = document.createElement("p");
-            building.className = "mt-2 text-sm text-slate-500";
-            building.textContent = `${room.building} · Floor ${room.floor}`;
-            const time = document.createElement("p");
-            time.className = "mt-3 text-sm font-medium text-slate-700";
-            time.textContent = `${booking.day}, ${booking.start}–${booking.end}`;
-            const cancel = document.createElement("button");
-            cancel.type = "button";
-            cancel.dataset.cancelBooking = booking.id;
-            cancel.className = "mt-4 rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-red-200 hover:text-red-700";
-            cancel.textContent = "Cancel booking";
-
-            card.append(title, building, time, cancel);
-            container.append(card);
-        });
+    return result;
 }
 
 function renderSchedule() {
@@ -214,33 +197,10 @@ function renderSchedule() {
             panel.append(empty);
         }
 
-        dayBookings.forEach((booking) => {
-            const room = rooms.find((item) => item.id === booking.roomId);
-            const entry = document.createElement("div");
-            entry.className = "border-t border-slate-100 py-3 first:border-t-0";
-            const title = document.createElement("p");
-            title.className = "text-sm font-semibold text-slate-900";
-            title.textContent = room.name;
-            const details = document.createElement("p");
-            details.className = "mt-1 text-xs text-slate-500";
-            const time = isValidTime(booking.start) && isValidTime(booking.end)
-                ? `${booking.start}–${booking.end}`
-                : "Time unavailable";
-            details.textContent = `${time} · ${room.building}`;
-            entry.append(title, details);
-
-            if (myBookings.includes(booking)) {
-                const badge = document.createElement("span");
-                badge.className = "mt-2 inline-block rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-900";
-                badge.textContent = "Your booking";
-                entry.append(badge);
-            }
-            panel.append(entry);
-        });
-        section.append(toggle, panel);
-        container.append(section);
-    });
-}
+ function searchRooms(day, start, end, filters){   // it runs after the validation of input
+  let  freerooms=getFreeRooms(day,start,end);       // give all free rooms at the given time slots
+   let filteredRooms=applyFilters(freerooms, filters); //when a time is entered it is possible that many rooms appeared of different building at same time, thats why it will search for only specific filter user has given
+   let groupedrooms=groupRooms(filteredRooms);          //it will give the result in a organized order like building => floor => class/lab
 
 function renderResults() {
     const container = document.getElementById("result");
@@ -266,115 +226,51 @@ function renderResults() {
         return;
     }
 
-    emptyState.classList.add("hidden");
-    summary.textContent = query ? "Showing rooms that match your search." : "Rooms available for your selected time.";
+ function validateInput(day, start, end) {             // this is a validate function will run after taking input from readinput()
+    const container = document.getElementById("result");
 
-    visibleRooms.forEach((room) => {
-        const card = document.createElement("article");
-        card.dataset.roomCard = "";
-        card.className = "rounded-2xl border border-slate-200 bg-white p-5 shadow-sm shadow-slate-900/[0.02] transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md";
+    if (day === "" || start === "" || end === "") {
+        container.innerHTML = "Please fill in the day, start time, and end time.";
+        return false;
+    }
 
-        const top = document.createElement("div");
-        top.className = "flex items-start justify-between gap-3";
-        const title = document.createElement("h3");
-        title.className = "font-bold tracking-tight text-slate-950";
-        title.textContent = room.name;
-        const available = document.createElement("span");
-        available.className = "shrink-0 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700";
-        available.textContent = "Available";
-        top.append(title, available);
+    if (timetominutes(end) <= timetominutes(start)) {
+        container.innerHTML = "End time must be later than start time.";
+        return false;
+    }
 
-        const building = document.createElement("p");
-        building.className = "mt-2 text-sm text-slate-500";
-        building.textContent = room.building;
-
-        const details = document.createElement("div");
-        details.className = "mt-5 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4";
-        const type = document.createElement("span");
-        type.className = "rounded-lg bg-blue-50 px-2.5 py-1.5 text-xs font-medium text-blue-900";
-        type.textContent = room.type;
-        const capacity = document.createElement("span");
-        capacity.className = "rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-medium text-slate-600";
-        capacity.textContent = `Up to ${room.capacity}`;
-        const floor = document.createElement("span");
-        floor.className = "rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-medium text-slate-600";
-        floor.textContent = `Floor ${room.floor}`;
-        details.append(type, capacity, floor);
-
-        const bookButton = document.createElement("button");
-        bookButton.type = "button";
-        bookButton.dataset.bookRoom = String(room.id);
-        bookButton.className = "mt-4 w-full rounded-xl bg-blue-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-900";
-        bookButton.textContent = "Book this room";
-        bookButton.disabled = Boolean(bookingStorageError);
-        bookButton.classList.toggle("cursor-not-allowed", bookButton.disabled);
-        bookButton.classList.toggle("opacity-50", bookButton.disabled);
-        card.append(top, building, details, bookButton);
-        container.append(card);
-    });
+    return true;
 }
 
-function bookRoom(roomId) {
-    if (bookingStorageError) {
-        showBookingFeedback(`Booking is unavailable because saved bookings could not be loaded: ${bookingStorageError}`, true);
-        activateTab("bookings", false);
-        return;
-    }
+ function readinput(){         //it runs when the user hit the search button 
+        
+     let user_day=document.getElementById("user-day").value;
+    let user_given_start= document.getElementById("start-time").value;
+   let  user_given_end=document.getElementById("end-time").value;
+     let  user_given_building=document.getElementById("user-building").value;
+     let  user_given_type=document.getElementById("user-type").value;
+    let  user_given_floor=document.getElementById("user-floor").value;
+     let  user_given_capacity=document.getElementById("user-capacity").value;
+const filters = {
+    building: user_given_building,
+    type: user_given_type,
+    floor: user_given_floor,
+    capacity: user_given_capacity
+};
 
-    const room = rooms.find((item) => String(item.id) === roomId);
-    if (!room || !activeSearch) {
-        return;
-    }
+const returntype = {
+    filters,
+    day: user_day,
+    start: user_given_start,
+    end: user_given_end
+};
 
-    const { day, start, end } = activeSearch;
-    if (isRoomBusy(room.id, day, start, end)) {
-        showBookingFeedback("That room is no longer available for the selected time. Search again.", true);
-        activateTab("bookings", false);
-        return;
-    }
+return returntype;
+       
+ }
 
-    const booking = {
-        id: globalThis.crypto && typeof globalThis.crypto.randomUUID === "function"
-            ? globalThis.crypto.randomUUID()
-            : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-        roomId: room.id,
-        day,
-        start,
-        end
-    };
-    const updatedBookings = [...myBookings, booking];
-    try {
-        localStorage.setItem(bookingsStorageKey, JSON.stringify(updatedBookings));
-    } catch (error) {
-        showBookingFeedback(`Could not save your booking: ${error.message}`, true);
-        activateTab("bookings", false);
-        return;
-    }
-
-    myBookings = updatedBookings;
-    bookings.push(booking);
-    document.getElementById("stat-bookings").textContent = String(bookings.length);
-    matchingRooms = searchRooms(day, start, end, activeSearch.filters);
-    renderResults();
-    renderBookings();
-    renderSchedule();
-    showBookingFeedback(`${room.name} is booked for ${day}, ${start}–${end}.`, false);
-    activateTab("bookings", false);
-}
-
-function cancelBooking(bookingId) {
-    const booking = myBookings.find((item) => item.id === bookingId);
-    if (!booking) {
-        return;
-    }
-
-    const updatedBookings = myBookings.filter((item) => item.id !== bookingId);
-    try {
-        localStorage.setItem(bookingsStorageKey, JSON.stringify(updatedBookings));
-    } catch (error) {
-        showBookingFeedback(`Could not cancel the booking: ${error.message}`, true);
-        return;
-    }
+ async function startapp(){    // this will act as a main function and starting point of everything
+     await loadData();    //this will wait and loads the data before going to anything
 
     myBookings = updatedBookings;
     bookings = bookings.filter((item) => item !== booking);
@@ -388,15 +284,12 @@ function cancelBooking(bookingId) {
     showBookingFeedback("Booking cancelled.", false);
 }
 
-function activateTab(tabName, focusTab) {
-    document.querySelectorAll("[data-tab]").forEach((tab) => {
-        const isActive = tab.dataset.tab === tabName;
-        tab.classList.toggle("is-active", isActive);
-        tab.setAttribute("aria-selected", String(isActive));
-        tab.tabIndex = isActive ? 0 : -1;
-        if (isActive && focusTab) {
-            tab.focus();
-        }
+        if(!validateInput(input.day, input.start, input.end)){
+            return; 
+     }
+    
+     const result = searchRooms(input.day, input.start, input.end, input.filters);
+        display(result);
     });
 
     document.querySelectorAll("[data-panel]").forEach((panel) => {
@@ -410,12 +303,13 @@ async function startApp() {
     const form = document.getElementById("room-finder");
     const endTimeInput = document.getElementById("end-time");
 
-    document.querySelectorAll("[data-tab]").forEach((tab) => {
-        tab.addEventListener("click", () => activateTab(tab.dataset.tab, false));
-        tab.addEventListener("keydown", (event) => {
-            if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
-                return;
-            }
+function  display(result){  // this will show the grouped rooms / it helps in printting
+    let container=document.getElementById("result");
+   
+    if( Object.keys(result).length===0){
+        container.innerHTML="No free rooms found";
+        return;
+    }
 
             event.preventDefault();
             const tabs = [...document.querySelectorAll("[data-tab]")];
